@@ -1,0 +1,11 @@
+/bin/
+/.git/
+*.env
+config.json
+config.yaml
+*docker-compose.yaml
+Dockerfile
+*.tmpl
+/data/
+/gluetun/
+/dockerdata/
