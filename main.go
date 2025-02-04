@@ -8,20 +8,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/W-Floyd/qbittorrent-docker-multiplexer/qbittorrent"
-	"github.com/W-Floyd/qbittorrent-docker-multiplexer/state"
-	"github.com/W-Floyd/qbittorrent-docker-multiplexer/util"
 	"github.com/gorilla/mux"
+	"github.com/leosunmo/zapchi"
 	"go.uber.org/zap"
 
-	"github.com/motemen/go-loghttp"
 	_ "github.com/motemen/go-loghttp/global"
-	"github.com/motemen/go-nuts/roundtime"
 	"github.com/omeid/uconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -29,47 +23,47 @@ import (
 func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
-	loghttp.DefaultLogRequest = func(req *http.Request) {
-		if false ||
-			strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/delete") ||
-			strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/add") {
-			log.Printf("--> %s %s", req.Method, req.URL)
-			for name, values := range req.Header {
-				// Loop over all values for the name.
-				for _, value := range values {
-					log.Println(name, value)
-				}
-			}
-			fmt.Println("")
-			for k, v := range req.Form {
-				log.Println(k, v)
-			}
-			fmt.Println("")
-		}
-	}
+	// loghttp.DefaultLogRequest = func(req *http.Request) {
+	// 	if false ||
+	// 		strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/delete") ||
+	// 		strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/add") {
+	// 		log.Printf("--> %s %s", req.Method, req.URL)
+	// 		for name, values := range req.Header {
+	// 			// Loop over all values for the name.
+	// 			for _, value := range values {
+	// 				log.Println(name, value)
+	// 			}
+	// 		}
+	// 		fmt.Println("")
+	// 		for k, v := range req.Form {
+	// 			log.Println(k, v)
+	// 		}
+	// 		fmt.Println("")
+	// 	}
+	// }
 
-	loghttp.DefaultLogResponse = func(resp *http.Response) {
-		loc := resp.Request.URL
-		if loc != nil {
-			if false ||
-				strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/delete") ||
-				strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/add") {
-				ctx := resp.Request.Context()
-				if start, ok := ctx.Value(loghttp.ContextKeyRequestStart).(time.Time); ok {
-					log.Printf("<-- %d %s (%s)", resp.StatusCode, resp.Request.URL, roundtime.Duration(time.Now().Sub(start), 2))
-				} else {
-					log.Printf("<-- %d %s", resp.StatusCode, resp.Request.URL)
-				}
-				for name, values := range resp.Header {
-					// Loop over all values for the name.
-					for _, value := range values {
-						log.Println(name, value)
-					}
-				}
-				fmt.Println("")
-			}
-		}
-	}
+	// loghttp.DefaultLogResponse = func(resp *http.Response) {
+	// 	loc := resp.Request.URL
+	// 	if loc != nil {
+	// 		if false ||
+	// 			strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/delete") ||
+	// 			strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/add") {
+	// 			ctx := resp.Request.Context()
+	// 			if start, ok := ctx.Value(loghttp.ContextKeyRequestStart).(time.Time); ok {
+	// 				log.Printf("<-- %d %s (%s)", resp.StatusCode, resp.Request.URL, roundtime.Duration(time.Now().Sub(start), 2))
+	// 			} else {
+	// 				log.Printf("<-- %d %s", resp.StatusCode, resp.Request.URL)
+	// 			}
+	// 			for name, values := range resp.Header {
+	// 				// Loop over all values for the name.
+	// 				for _, value := range values {
+	// 					log.Println(name, value)
+	// 				}
+	// 			}
+	// 			fmt.Println("")
+	// 		}
+	// 	}
+	// }
 }
 
 func main() {
@@ -110,44 +104,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Logging
-
-	for i := uint(0); i < state.AppState.NumberOfClients; i++ {
-		fmt.Println("Instance at 127.0.0.1:" + util.UintToString(qbittorrent.Port(&conf.QBittorrent, &i)))
-		fmt.Println("Username: " + qbittorrent.Username(&conf.QBittorrent, &i))
-		fmt.Println("Password: " + qbittorrent.Password(&conf.QBittorrent, &i))
-		fmt.Println("")
-	}
-
-	// Docker Compose
-
-	// client.
-
 	// Router
 
 	r := mux.NewRouter()
 
-	r.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	r.PathPrefix("/").HandlerFunc(conf.HandleAll)
 
-		r.ParseForm()
-		r.ParseMultipartForm(131072)
-
-		if r.URL.Path == "/api/v2/torrents/info" {
-			conf.HandlerFetchMergeArray(w, r)
-		} else if slices.Contains([]string{
-			"/api/v2/sync/maindata",
-			"/api/v2/torrents/categories",
-		}, r.URL.Path) {
-			conf.HandlerFetchMerge(w, r)
-		} else if r.Form.Has("hash") || r.Form.Has("hashes") {
-			conf.HandlerHashFinder(w, r)
-		} else {
-			conf.HandlerPassthrough(w, r)
-		}
-
-	})
-
-	// r.Use(zapchi.Logger(logger, "router"))
+	r.Use(zapchi.Logger(logger, "router"))
 
 	srv := &http.Server{
 		Addr:         conf.Multiplexer.Address + ":" + strconv.FormatUint(uint64(conf.Multiplexer.Port), 10),
