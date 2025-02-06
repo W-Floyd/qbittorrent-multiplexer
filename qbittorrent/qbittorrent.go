@@ -253,7 +253,11 @@ func (i *Instance) PrepareRequest(r *http.Request) (newReq *http.Request) {
 	newReq.Header.Set("Referer", i.URL.JoinPath("/").String())
 	newReq.Header.Del("Origin")
 	newReq.Header.Del("Cookie")
+	newReq.Header.Del("Referer-Policy")
 	newReq.Header.Del("Accept-Encoding")
+	newReq.Header.Del("X-Forwarded-Proto")
+	newReq.Header.Del("X-Forwarded-For")
+	newReq.Header.Del("X-Forwarded-Host")
 
 	return
 
