@@ -1,0 +1,29 @@
+services:
+  qbittorrent1:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent1
+    network_mode: "service:${VPN_SERVICE_NAME}"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - WEBUI_PORT=11000
+      - TORRENTING_PORT=6881
+    volumes:
+      - ./dockerdata/qbittorrent1/config:/config
+      - ./dockerdata/qbittorrent1/downloads:/downloads
+    restart: unless-stopped
+  qbittorrent2:
+    image: lscr.io/linuxserver/qbittorrent:latest
+    container_name: qbittorrent2
+    network_mode: "service:${VPN_SERVICE_NAME}"
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - WEBUI_PORT=11001
+      - TORRENTING_PORT=6882
+    volumes:
+      - ./dockerdata/qbittorrent2/config:/config
+      - ./dockerdata/qbittorrent2/downloads:/downloads
+    restart: unless-stopped

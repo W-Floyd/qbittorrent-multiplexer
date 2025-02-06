@@ -1,9 +1,3 @@
-/.env
-/qbittorrent-docker-multiplexer
 /config.json
 /config.yaml
-/data
-/*-docker-compose.yaml
-/dockerdata/
-/gluetun/
-/localdata/
+/qbittorrent-multiplexer

@@ -1,43 +1,54 @@
 package qbittorrent
 
 import (
+	"context"
 	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
 
 type Config struct {
-	URL          string `usage:"URL of qBittorrent instance (http://hostname:port)"`
-	Authenticate bool   `default:"true" usage:"Whether to authenticate"`
-	Username     string `usage:"Username for auth"`
-	Password     string `usage:"Password for auth"`
+	URL           string        `usage:"URL of qBittorrent instance (http://hostname:port)"`
+	Authenticate  bool          `usage:"Whether to authenticate"`
+	Username      string        `usage:"Username for auth - implies Authenticate=true"`
+	Password      string        `usage:"Password for auth - implies Authenticate=true"`
+	Name          string        `usage:"Name of instance, used as a shorter alternative for user"`
+	CookieTimeout time.Duration `usage:"Cookie refresh interval"`
 }
 
 type Instance struct {
 	URL    *url.URL
 	Client *http.Client
 	Auth   struct {
-		Enabled     *bool
-		Lock        sync.Mutex
+		Enabled *bool
+		Cookie  struct {
+			Timeout time.Duration
+			Expires time.Time
+			Mutex   sync.Mutex
+		}
 		Credentials struct {
 			Username *string
 			Password *string
 		}
 	}
+	Name string
 }
 
 type Configs []*Config
 type Hash string
+type ContextKey *string
 
 var (
 	Instances         []*Instance
-	Torrents          map[Hash]*Instance
+	Torrents          map[Hash]*Instance = map[Hash]*Instance{}
 	RoundRobinCounter int
 
 	Locks struct {
@@ -45,14 +56,55 @@ var (
 		Torrents          sync.Mutex
 		RoundRobinCounter sync.Mutex
 	}
+	ContextKeyInstance = NewContextKey("instance")
 )
 
+func NewContextKey(key string) ContextKey {
+	return ContextKey(&key)
+}
+
 func (c Configs) Validate() (errs []error) {
+
+	g := sync.WaitGroup{}
+	d := sync.WaitGroup{}
+
+	errsChan := make(chan error)
+	instancesChan := make(chan *Instance)
+
 	for _, config := range c {
-		instance, instanceErrors := config.New()
-		errs = append(errs, instanceErrors...)
-		Instances = append(Instances, instance)
+		g.Add(1)
+		go func() {
+			defer g.Done()
+			instance, instanceErrors := config.New()
+			for _, err := range instanceErrors {
+				errsChan <- err
+			}
+			instancesChan <- instance
+		}()
 	}
+
+	d.Add(3)
+	go func() {
+		defer d.Done()
+		g.Wait()
+		close(errsChan)
+		close(instancesChan)
+	}()
+	go func() {
+		defer d.Done()
+		for instance := range instancesChan {
+			Instances = append(Instances, instance)
+		}
+	}()
+	go func() {
+		defer d.Done()
+		for err := range errsChan {
+			errs = append(errs, err)
+		}
+	}()
+
+	d.Wait()
+
 	log.Println("Config validated")
 	return
 }
@@ -71,8 +123,11 @@ func (c *Config) New() (i *Instance, errs []error) {
 
 	i.Auth.Enabled = &c.Authenticate
 
+	var jar *cookiejar.Jar
+
 	// Authentication
-	if *i.Auth.Enabled {
+	if *i.Auth.Enabled || c.Username != "" || c.Password != "" {
+		*i.Auth.Enabled = true
 		// Credentials
 		if c.Username == "" {
 			errs = append(errs, errors.New("empty username"))
@@ -84,13 +139,27 @@ func (c *Config) New() (i *Instance, errs []error) {
 		} else {
 			i.Auth.Credentials.Password = &c.Password
 		}
+
+		jar, err = cookiejar.New(nil)
+		if err != nil {
+			errs = append(errs, err)
+		}
+
+		if c.CookieTimeout == 0 {
+			i.Auth.Cookie.Timeout = time.Minute * 15
+		} else {
+			i.Auth.Cookie.Timeout = c.CookieTimeout
+		}
+
 	}
 
 	if len(errs) == 0 {
 		i.Client = &http.Client{
-			Transport: http.DefaultTransport,
-			Jar:       &cookiejar.Jar{},
+			Transport:     http.DefaultTransport,
+			Jar:           jar,
+			CheckRedirect: http.DefaultClient.CheckRedirect,
 		}
+
 	}
 
 	// Authentication
@@ -101,54 +170,93 @@ func (c *Config) New() (i *Instance, errs []error) {
 		}
 	}
 
+	i.Name = c.Name
+
 	return
 
 }
 
 func (i *Instance) Login() error {
 
-	needToUpdate := false
-
-	for _, cookie := range i.Client.Jar.Cookies(&url.URL{Path: "/api/v2/"}) {
-		if !cookie.Expires.After(time.Now()) {
-			needToUpdate = true
-			break
-		}
+	if !(*i.Auth.Enabled) {
+		return nil
 	}
 
-	if !needToUpdate {
+	i.Auth.Cookie.Mutex.Lock()
+	defer i.Auth.Cookie.Mutex.Unlock()
+
+	if i.Auth.Cookie.Expires.After(time.Now()) {
 		return nil
 	}
 
 	form := url.Values{}
-	form.Add("username", *i.Auth.Credentials.Username)
-	form.Add("password", *i.Auth.Credentials.Password)
+	form.Add("username", *(i.Auth.Credentials.Username))
+	form.Add("password", *(i.Auth.Credentials.Password))
 
-	req := i.MakeRequest("/api/v2/auth/login")
-	req.URL.RawQuery = form.Encode()
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := i.GetResponse(req)
+	req, err := i.MakeRequest(http.MethodPost, "/api/v2/auth/login", strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
-	} else if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return errors.New("status code " + strconv.Itoa(resp.StatusCode) + ", body:\n" + string(body))
 	}
+	req.Header = http.Header{}
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	newReq := i.PrepareRequest(req)
+
+	resp, err := i.Client.Do(newReq)
+
+	if err != nil || resp.StatusCode != http.StatusOK {
+		log.Println("Authentication failed (" + i.URL.Host + ")")
+		body := []byte("NONE")
+		status := "NONE"
+		if resp != nil {
+			body, _ = io.ReadAll(resp.Body)
+			status = strconv.Itoa(resp.StatusCode)
+		}
+
+		suffix := ""
+		if err != nil {
+			suffix = "\nError: " + err.Error()
+		}
+
+		return errors.New("Status Code:" + status + "\nBody:\n" + string(body) + suffix)
+	}
+
+	i.Auth.Cookie.Expires = time.Now().Add(i.Auth.Cookie.Timeout)
+
+	log.Println("Authenticated (" + i.URL.Host + ")")
 
 	return nil
 
 }
 
-func (i *Instance) MakeRequest(method string, pathElements ...string) *http.Request {
-	return &http.Request{
-		Method: method,
-		URL:    i.URL.JoinPath(pathElements...),
-	}
+func (i *Instance) MakeRequest(method, url string, body io.Reader) (*http.Request, error) {
+	req, err := http.NewRequest(method, url, body)
+	req.URL.Host = i.URL.Host
+	return req, err
 }
 
-func (i *Instance) GetResponse(r *http.Request) (resp *http.Response, err error) {
-	return i.Client.Transport.RoundTrip(r)
+func (i *Instance) PrepareRequest(r *http.Request) (newReq *http.Request) {
+
+	ctx := r.Context()
+
+	newReq = r.Clone(context.WithValue(ctx, ContextKeyInstance, i))
+
+	newReq.RequestURI = ""
+	newReq.URL.Scheme = i.URL.Scheme
+	newReq.URL.Host = i.URL.Host
+	newReq.Host = i.URL.Host
+
+	if newReq.Header == nil {
+		newReq.Header = http.Header{}
+	}
+
+	newReq.Header.Set("Referer", i.URL.JoinPath("/").String())
+	newReq.Header.Del("Origin")
+	newReq.Header.Del("Cookie")
+	newReq.Header.Del("Accept-Encoding")
+
+	return
+
 }
 
 func LeastBusy() *Instance {
@@ -161,26 +269,39 @@ func LeastBusy() *Instance {
 
 	counts := map[*Instance]uint{}
 
+	for _, instance := range Instances {
+		counts[instance] = 0
+	}
+
 	for _, instance := range Torrents {
 		counts[instance] += 1
 	}
 
 	var minimum *uint
-	var minimumInstance *Instance
 
-	for i, c := range counts {
+	for _, c := range counts {
 		if minimum == nil {
 			minimum = &c
-			minimumInstance = i
 		} else {
 			if c < *minimum {
 				minimum = &c
-				minimumInstance = i
 			}
 		}
 	}
 
-	return minimumInstance
+	minimumInstances := []*Instance{}
+
+	for instance, count := range counts {
+		if count == *minimum {
+			minimumInstances = append(minimumInstances, instance)
+		}
+	}
+
+	slices.SortStableFunc(minimumInstances, func(a, b *Instance) int {
+		return strings.Compare(a.URL.Host, b.URL.Host)
+	})
+
+	return minimumInstances[0]
 
 }
 

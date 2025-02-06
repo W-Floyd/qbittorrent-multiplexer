@@ -12,10 +12,9 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/leosunmo/zapchi"
 	"go.uber.org/zap"
 
-	_ "github.com/motemen/go-loghttp/global"
+	// _ "github.com/motemen/go-loghttp/global"
 	"github.com/omeid/uconfig"
 	"gopkg.in/yaml.v3"
 )
@@ -24,46 +23,44 @@ func init() {
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
 
 	// loghttp.DefaultLogRequest = func(req *http.Request) {
-	// 	if false ||
-	// 		strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/delete") ||
-	// 		strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/add") {
-	// 		log.Printf("--> %s %s", req.Method, req.URL)
-	// 		for name, values := range req.Header {
-	// 			// Loop over all values for the name.
-	// 			for _, value := range values {
-	// 				log.Println(name, value)
-	// 			}
-	// 		}
-	// 		fmt.Println("")
-	// 		for k, v := range req.Form {
-	// 			log.Println(k, v)
-	// 		}
-	// 		fmt.Println("")
-	// 	}
-	// }
-
-	// loghttp.DefaultLogResponse = func(resp *http.Response) {
-	// 	loc := resp.Request.URL
-	// 	if loc != nil {
+	// 	if !strings.HasPrefix(req.URL.RequestURI(), "/api/v2/sync/maindata") {
 	// 		if false ||
-	// 			strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/delete") ||
-	// 			strings.HasPrefix(loc.RequestURI(), "/api/v2/torrents/add") {
-	// 			ctx := resp.Request.Context()
-	// 			if start, ok := ctx.Value(loghttp.ContextKeyRequestStart).(time.Time); ok {
-	// 				log.Printf("<-- %d %s (%s)", resp.StatusCode, resp.Request.URL, roundtime.Duration(time.Now().Sub(start), 2))
-	// 			} else {
-	// 				log.Printf("<-- %d %s", resp.StatusCode, resp.Request.URL)
-	// 			}
-	// 			for name, values := range resp.Header {
+	// 			strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/delete") ||
+	// 			strings.HasPrefix(req.URL.RequestURI(), "/api/v2/torrents/add") {
+	// 			log.Printf("--> %s %s", req.Method, req.URL)
+	// 			for name, values := range req.Header {
 	// 				// Loop over all values for the name.
 	// 				for _, value := range values {
 	// 					log.Println(name, value)
 	// 				}
 	// 			}
 	// 			fmt.Println("")
+	// 			for k, v := range req.Form {
+	// 				log.Println(k, v)
+	// 			}
+	// 			fmt.Println("")
 	// 		}
 	// 	}
 	// }
+
+	// loghttp.DefaultLogResponse = func(resp *http.Response) {
+	// 	if !strings.HasPrefix(resp.Request.URL.RequestURI(), "/api/v2/sync/maindata") {
+	// 		ctx := resp.Request.Context()
+	// 		if start, ok := ctx.Value(loghttp.ContextKeyRequestStart).(time.Time); ok {
+	// 			log.Printf("<-- %d %s (%s)", resp.StatusCode, resp.Request.URL, roundtime.Duration(time.Now().Sub(start), 2))
+	// 		} else {
+	// 			log.Printf("<-- %d %s", resp.StatusCode, resp.Request.URL)
+	// 		}
+	// 		for name, values := range resp.Header {
+	// 			// Loop over all values for the name.
+	// 			for _, value := range values {
+	// 				log.Println(name, value)
+	// 			}
+	// 		}
+	// 		fmt.Println("")
+	// 	}
+	// }
+
 }
 
 func main() {
@@ -95,6 +92,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Router
+
+	r := mux.NewRouter()
+
+	r.PathPrefix("/").HandlerFunc(conf.HandleAll)
+
+	// r.Use(zapchi.Logger(logger, "router"))
+
 	errs := conf.Validate()
 	if errs != nil {
 		fmt.Println("Errors in config:")
@@ -104,13 +109,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Router
-
-	r := mux.NewRouter()
-
-	r.PathPrefix("/").HandlerFunc(conf.HandleAll)
-
-	r.Use(zapchi.Logger(logger, "router"))
+	errs = conf.Prime()
+	if errs != nil {
+		log.Println(errs)
+	}
 
 	srv := &http.Server{
 		Addr:         conf.Multiplexer.Address + ":" + strconv.FormatUint(uint64(conf.Multiplexer.Port), 10),
@@ -119,8 +121,6 @@ func main() {
 		IdleTimeout:  time.Second * 60,
 		Handler:      r,
 	}
-
-	fmt.Println(conf.Multiplexer.ShutdownTimeout)
 
 	go func() {
 		if err := srv.ListenAndServe(); err != nil {

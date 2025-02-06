@@ -1,26 +1,17 @@
-name: ${COMPOSE_PROJECT_NAME}
 include:
   - vpn-docker-compose.yaml
   - qbittorrent-docker-compose.yaml
-# services:
-  # qbittorrent-docker-multiplexer:
-  #   container_name: qbittorrent-docker-multiplexer
-  #   build: .
-  #   network_mode: "container:${VPN_SERVICE_NAME}"
-  #   environment:
-  #     COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
-  #     QBITTORRENT_SECRETSEED: ${QBITTORRENT_SECRETSEED}
-  #     MULTIPLEXER_SECRET: ${MULTIPLEXER_SECRET}
-  #     MULTIPLEXER_PORT: ${MULTIPLEXER_PORT}
-  #   volumes:
-  #     # This allows spawning qBittorrent containers on demand
-  #     - /var/run/docker.sock:/var/run/docker.sock:rw
-  #     # Template files
-  #     - ./qbittorrent.conf.tmpl:/config/qbittorrent.conf.tmpl
-  #     - ./docker-compose.yaml.tmpl:/config/docker-compose.yaml.tmpl
-  #     # State files (so we re-spawn containers as needed)
-  #     - ./data/:/data/
-  #   develop:
-  #     watch:
-  #       - action: rebuild
-  #         path: ./
+services:
+  qbittorrent-multiplexer:
+    container_name: qbittorrent-multiplexer
+    network_mode: "container:${VPN_SERVICE_NAME}"
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+      MULTIPLEXER_PORT: ${MULTIPLEXER_PORT}
+    volumes:
+      - ./config.yaml:/config/config.yaml
+    build: .
+    develop:
+      watch:
+        - action: rebuild
+          path: ./

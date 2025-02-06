@@ -1,11 +1,8 @@
-/bin/
+.env
+.gitignore
+*docker-compose.yaml
 /.git/
-*.env
 config.json
 config.yaml
-*docker-compose.yaml
 Dockerfile
-*.tmpl
-/data/
-/gluetun/
-/dockerdata/
+qbittorrent-multiplexer

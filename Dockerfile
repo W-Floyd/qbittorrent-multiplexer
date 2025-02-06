@@ -8,13 +8,13 @@ COPY . ./
 RUN \
     CGO_ENABLED=0 \
     GOOS=linux \
-    go build -a -installsuffix cgo -o qbittorrent-docker-multiplexer .
+    go build -a -installsuffix cgo -o qbittorrent-multiplexer .
 
 FROM alpine:latest
 
 WORKDIR /root
 
 # Copy the binary from the builder stage
-COPY --from=builder /src/qbittorrent-docker-multiplexer .
+COPY --from=builder /src/qbittorrent-multiplexer .
 
-ENTRYPOINT ["/root/qbittorrent-docker-multiplexer"]
+ENTRYPOINT ["/root/qbittorrent-multiplexer"]

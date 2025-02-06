@@ -1,8 +1,13 @@
 package main
 
 import (
-	"github.com/W-Floyd/qbittorrent-docker-multiplexer/multiplexer"
-	"github.com/W-Floyd/qbittorrent-docker-multiplexer/qbittorrent"
+	"log"
+	"net/http"
+	"net/url"
+	"sync"
+
+	"github.com/W-Floyd/qbittorrent-multiplexer/multiplexer"
+	"github.com/W-Floyd/qbittorrent-multiplexer/qbittorrent"
 )
 
 type Config struct {
@@ -11,8 +16,54 @@ type Config struct {
 }
 
 func (c Config) Validate() (errs []error) {
-	errs = append(errs, c.Multiplexer.Validate()...)
-	errs = append(errs, c.QBittorrent.Validate()...)
+
+	g := sync.WaitGroup{}
+
+	errsChan := make(chan error)
+
+	g.Add(2)
+	go func() {
+		defer g.Done()
+		for _, err := range c.Multiplexer.Validate() {
+			errsChan <- err
+		}
+	}()
+	go func() {
+		defer g.Done()
+		for _, err := range c.QBittorrent.Validate() {
+			errsChan <- err
+		}
+	}()
+
+	go func() {
+		g.Wait()
+		close(errsChan)
+	}()
+
+	for err := range errsChan {
+		errs = append(errs, err)
+	}
+
+	return errs
+}
+
+func (c Config) Prime() (errs []error) {
+
+	r := &http.Request{
+		URL: &url.URL{
+			Path: "/api/v2/torrents/info",
+		},
+	}
+
+	resps := c.ParallelResponses(r, RequestOptions{
+		Callback: &RequestCallbackTorrentInfoAdd,
+	})
+
+	for _, resp := range resps {
+		errs = append(errs, resp.errs...)
+	}
+
+	log.Println("Torrent list primed")
 
 	return errs
 }

@@ -7,22 +7,18 @@ import (
 )
 
 type Config struct {
-	Secret  string `default:"" usage:"Multiplexer app secret"`
 	Address string `default:"0.0.0.0" usage:"Multiplexer listening address"`
 	Port    uint   `default:"9955" usage:"Multiplexer port"`
-	Minify  struct {
-		Info struct {
-			Trackers bool `default:"false" usage:"Whether to remove tracker information for client performance"`
+	Format  struct {
+		PrettyPrint bool `usage:"Whether to pretty print outputs (useful for debugging)"`
+		Info        struct {
+			RemoveFields []string `default:"" usage:"Fields to remove from responses (for client performance)"`
 		}
 	}
 	ShutdownTimeout time.Duration `default:"15s"`
 }
 
 func (c Config) Validate() (errs []error) {
-
-	if c.Secret == "" {
-		errs = append(errs, errors.New("(Multiplexer) Empty Secret key"))
-	}
 
 	if c.Address == "" {
 		errs = append(errs, errors.New("(Multiplexer) Empty Listening Address key"))
