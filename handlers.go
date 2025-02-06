@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/Jeffail/gabs/v2"
 	"github.com/W-Floyd/qbittorrent-multiplexer/qbittorrent"
@@ -137,6 +138,11 @@ func (c *Config) HandleAll(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/debug/leastbusy" {
 		body := strings.NewReader(qbittorrent.LeastBusy().URL.Host)
 		c.MakeResponse(nil, &http.Response{Body: io.NopCloser(body)}, w)
+	} else if r.URL.Path == "/debug/expirelogins" {
+		for _, instance := range qbittorrent.Instances {
+			instance.Auth.Cookie.Expires = time.Now()
+		}
+		c.MakeResponse(nil, &http.Response{Body: io.NopCloser(strings.NewReader("Marked all cookies to expire"))}, w)
 	} else if r.URL.Path == "/debug/torrents/perinstance" {
 		body := []string{}
 
