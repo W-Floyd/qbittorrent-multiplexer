@@ -1,0 +1,13 @@
+multiplexer:
+  address: 0.0.0.0
+  format:
+    prettyprint: false
+qbittorrent:
+  - url: http://127.0.0.1:11001
+    username: user
+    password: password
+    name: "1"
+  - url: http://127.0.0.1:11002
+    username: user
+    password: password
+    name: "2"
