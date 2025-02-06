@@ -158,6 +158,7 @@ func (c *Config) HandleAll(w http.ResponseWriter, r *http.Request) {
 		resp := http.Response{}
 		resp.StatusCode = http.StatusOK
 		resp.Body = io.NopCloser(strings.NewReader("Ok."))
+		resp.Header = http.Header{}
 		resp.Header.Add("Set-Cookie", "SID=w7UA+CZFdxQZylg0Y6T0Lzx/AQvRHMdV") // Fake it until you make it...
 		c.MakeResponse(nil, &resp, w)
 	} else if strings.HasPrefix(r.URL.Path, "/api/v2/sync/maindata") {
