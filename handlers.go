@@ -321,6 +321,10 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 
 	callback := func(c *Config, resp *http.Response) error {
 
+		if resp.Request == nil {
+			return errors.New("empty request attached to response")
+		}
+
 		instance := resp.Request.Context().Value(qbittorrent.ContextKeyInstance).(*qbittorrent.Instance)
 		if instance == nil {
 			return errors.New("empty instance")
