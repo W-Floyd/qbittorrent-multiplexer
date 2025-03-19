@@ -30,11 +30,72 @@ type RequestOptions struct {
 	Callback *func(c *Config, resp *http.Response) error // Is called on each response
 }
 
+type StatisticsMethod int
+
+const (
+	StatisticsMethodSum = StatisticsMethod(iota)
+	StatisticsMethodAverage
+)
+
 var (
-	Statistics = map[*qbittorrent.Instance]struct {
-		AlltimeDl *float64
-		AlltimeUl *float64
-	}{}
+	StatisticsKeys = []struct {
+		Key         string
+		Method      StatisticsMethod
+		RetainValue bool
+	}{
+		{
+			Key:         "alltime_dl",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "alltime_ul",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "dht_nodes",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "dht_nodes",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "dl_info_data",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "dl_info_speed",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "dl_rate_limit",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "up_info_data",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "up_info_speed",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+		{
+			Key:         "up_rate_limit",
+			Method:      StatisticsMethodSum,
+			RetainValue: true,
+		},
+	}
+
+	Statistics = map[*qbittorrent.Instance]map[string]*float64{}
 
 	CollisionReplace = func(dest, source interface{}) interface{} {
 		destArr, destIsArray := dest.([]interface{})
@@ -343,31 +404,17 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 		}
 
 		if _, ok := Statistics[instance]; !ok {
-			dl := 0.0
-			ul := 0.0
-			v := struct {
-				AlltimeDl *float64
-				AlltimeUl *float64
-			}{&dl, &ul}
-			Statistics[instance] = v
+			Statistics[instance] = map[string]*float64{}
 		}
 
-		pairs := []struct {
-			value *float64
-			from  string
-		}{
-			{value: Statistics[instance].AlltimeDl, from: "alltime_dl"},
-			{value: Statistics[instance].AlltimeUl, from: "alltime_ul"},
-		}
-
-		for _, pair := range pairs {
-			path := "server_state." + pair.from
+		for _, entry := range StatisticsKeys {
+			path := "server_state." + entry.Key
 			if container.ExistsP(path) {
-				if pair.value == nil {
+				if _, ok := Statistics[instance][entry.Key]; !ok || Statistics[instance][entry.Key] == nil {
 					v := float64(0)
-					pair.value = &v
+					Statistics[instance][entry.Key] = &v
 				}
-				*pair.value = container.Path(path).Data().(float64)
+				*Statistics[instance][entry.Key] = container.Path(path).Data().(float64)
 			}
 		}
 
@@ -419,37 +466,6 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 		close(infoChan)
 	}()
 
-	summedInfo := struct {
-		DhtNodes    float64
-		DlInfoData  float64
-		DlInfoSpeed float64
-		DlRateLimit float64
-		UpInfoData  float64
-		UpInfoSpeed float64
-		UpRateLimit float64
-	}{}
-
-	pairs := []struct {
-		value *float64
-		from  string
-		to    []string
-	}{
-		{value: &summedInfo.DhtNodes, from: "dht_nodes"},
-		{value: &summedInfo.DhtNodes, from: "dht_nodes"},
-		{value: &summedInfo.DlInfoData, from: "dl_info_data"},
-		{value: &summedInfo.DlInfoSpeed, from: "dl_info_speed"},
-		{value: &summedInfo.DlRateLimit, from: "dl_rate_limit"},
-		{value: &summedInfo.UpInfoData, from: "up_info_data"},
-		{value: &summedInfo.UpInfoSpeed, from: "up_info_speed"},
-		{value: &summedInfo.UpRateLimit, from: "up_rate_limit"},
-	}
-
-	for infoCon := range infoChan {
-		for _, pair := range pairs {
-			*pair.value += infoCon.Path(pair.from).Data().(float64)
-		}
-	}
-
 	g.Wait()
 	if err != nil {
 		return nil, err
@@ -460,36 +476,25 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 		return nil, err
 	}
 
-	for _, pair := range pairs {
-		if len(pair.to) == 0 {
-			pair.to = []string{pair.from}
+	for _, entry := range StatisticsKeys {
+		values := []float64{}
+		for _, instance := range qbittorrent.Instances {
+			values = append(values, *Statistics[instance][entry.Key])
 		}
-		for _, to := range pair.to {
-			if _, err = bodyCon.SetP(*pair.value, "server_state."+to); err != nil {
-				return nil, err
-			}
-		}
-	}
 
-	stats := struct {
-		AlltimeDl float64
-		AlltimeUl float64
-	}{}
-
-	for _, instance := range qbittorrent.Instances {
-		if Statistics[instance].AlltimeDl != nil {
-			stats.AlltimeDl += *Statistics[instance].AlltimeDl
+		value := 0.0
+		for _, v := range values {
+			value += v
 		}
-		if Statistics[instance].AlltimeUl != nil {
-			stats.AlltimeUl += *Statistics[instance].AlltimeUl
-		}
-	}
 
-	if _, err = bodyCon.SetP(stats.AlltimeDl, "server_state.alltime_dl"); err != nil {
-		return nil, err
-	}
-	if _, err = bodyCon.SetP(stats.AlltimeUl, "server_state.alltime_ul"); err != nil {
-		return nil, err
+		switch entry.Method {
+		case StatisticsMethodAverage:
+			value = value / float64(len(values))
+		}
+
+		if _, err = bodyCon.SetP(value, "server_state."+entry.Key); err != nil {
+			return nil, err
+		}
 	}
 
 	newBody := bodyCon.Bytes()
