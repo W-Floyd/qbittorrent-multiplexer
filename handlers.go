@@ -479,12 +479,7 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 	for _, entry := range StatisticsKeys {
 		values := []float64{}
 		for _, instance := range qbittorrent.Instances {
-			if _, ok := Statistics[instance][entry.Key]; ok {
-				values = append(values, *Statistics[instance][entry.Key])
-				if !entry.RetainValue {
-					Statistics[instance][entry.Key] = nil
-				}
-			}
+			values = append(values, *Statistics[instance][entry.Key])
 		}
 
 		value := 0.0
@@ -500,7 +495,6 @@ func (c *Config) HandlerTorrentsMaindata(r *http.Request) (*http.Response, error
 		if _, err = bodyCon.SetP(value, "server_state."+entry.Key); err != nil {
 			return nil, err
 		}
-
 	}
 
 	newBody := bodyCon.Bytes()
