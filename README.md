@@ -13,7 +13,7 @@
 
 I run multiple instances of qBittorrent for performance reasons, but find it annoying to keep an eye on them.
 This is a simple application to combine multiple instances into the same frontend.
-It authenticates with the API for each instance and intelegantly passes requests through and/or combines them to allow a single view.
+It authenticates with the API for each instance and intelligently passes requests through and/or combines them to allow a single view.
 
 ## Features
 
