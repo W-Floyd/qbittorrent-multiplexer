@@ -1,3 +1,5 @@
+# Try https://github.com/autobrr/qui
+
 # qBittorrent Multiplexer <!-- omit from toc -->
 ## Combine multiple qBittorrent instances <!-- omit from toc -->
 
